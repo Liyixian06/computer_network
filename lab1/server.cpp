@@ -3,17 +3,17 @@
 using namespace std;
 InitSock sock;
 
-int ServerPort = 1234;
-const int buffer_sz = 1024; 
+int ServerPort = 1234; //端口号
+const int buffer_sz = 1024; //缓冲区大小
 const int listenMAX = 5; //最大连接数
-int connectedclient = 0;
+int connectedclient = 0; //当前连接数
 
 SOCKET ServerSocket;
 SOCKET ClientSockets[listenMAX];
 sockaddr_in ServerAddr;
 sockaddr_in ClientAddr[listenMAX];
 int addr_len = sizeof(ClientAddr);
-HANDLE ClientThreads[listenMAX];
+HANDLE ClientThreads[listenMAX]; //client 线程数组
 
 char sendbuf[buffer_sz];
 char recvbuf[buffer_sz];
@@ -102,6 +102,7 @@ int main()
             if(ClientSockets[i]==0)
                 break;
         }
+        if(i>=listenMAX) continue; 
         ClientSockets[i] = accept(ServerSocket, (SOCKADDR*)&ClientAddr[i], &addr_len);
         if(ClientSockets[i] == INVALID_SOCKET){
             cout<<"Connect failed."<<endl;
@@ -133,6 +134,7 @@ int main()
                     continue;
                 else send(ClientSockets[j], sendbuf, buffer_sz, 0);
             }
+            if(connectedclient==listenMAX) cout<<"Connection is full."<<endl;
         }
     }
 

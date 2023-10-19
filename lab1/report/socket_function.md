@@ -57,7 +57,7 @@ server 监听到 client 的请求之后，调用 `accept()` 接受请求，建�
 
 返回实际发送/接收的字节数，<0 是报错
 
-1. `close()`  
+6. `close()`  
 `int close(int fd);`  
 
 `close()` 是使相应 socket descripter 的引用计数-1，只有计数 =0 时，才会触发 client 向 server 发出终止连接请求
