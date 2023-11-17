@@ -3,6 +3,7 @@
 #include <time.h>
 using namespace std;
 uint16_t flag = 0;
+#define max_t CLOCKS_PER_SEC*0.1
 
 int main(){
     clock_t start = clock();
@@ -12,5 +13,7 @@ int main(){
     int sz = 100;
     cout<<size/sz<<endl;
     Sleep(100);
-    cout<<clock()-start<<endl;
+    if(clock()-start>max_t){
+        cout<<"yes"<<endl;
+    }
 }

@@ -41,6 +41,9 @@ bool Connect()
         }
     }
 
+    u_long mode = 1;
+    ioctlsocket(ServerSocket, FIONBIO, &mode); // 设置为非阻塞模式
+
     // 发送第二次握手信息
     memset(&connect, 0, packet_length);
     memset(connect_buf, 0, packet_length);
@@ -79,6 +82,8 @@ bool Connect()
         return 0;
     }
 
+    mode = 0;
+    ioctlsocket(ServerSocket, FIONBIO, &mode); // 阻塞模式
     delete[] connect_buf;
     return 1;
 }
@@ -97,12 +102,14 @@ bool Disconnect()
             return 0;
         }
         memcpy(&disconnect, disconnect_buf, packet_length);
-        //print_log(disconnect);
         if((disconnect.header.flag == FIN) && (disconnect.header.seq == 0xFFFF) && check_sum((uint16_t*)&disconnect, packet_length)==0){
             cout<<"first handwave finished."<<endl;
             break;
         }
     }
+
+    u_long mode = 1;
+    ioctlsocket(ServerSocket, FIONBIO, &mode); // 非阻塞模式
 
     // 发送第二次挥手信息
     memset(&disconnect, 0, packet_length);
@@ -112,7 +119,6 @@ bool Disconnect()
     disconnect.header.ack = 0x0;
     disconnect.header.sum = check_sum((uint16_t*)&disconnect, packet_length);
     memcpy(disconnect_buf, &disconnect, packet_length);
-    //print_log(disconnect);
     res = sendto(ServerSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, ClientAddrSize);
     if(res == SOCKET_ERROR){
         cout<<"second handwave failed."<<endl;
@@ -127,7 +133,6 @@ bool Disconnect()
     disconnect.header.seq = 0xFFFF;
     disconnect.header.sum = check_sum((uint16_t*)&disconnect, packet_length);
     memcpy(disconnect_buf, &disconnect, packet_length);
-    //print_log(disconnect);
     res = sendto(ServerSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, ClientAddrSize);
     if(res == SOCKET_ERROR){
         cout<<"third handwave failed."<<endl;
@@ -150,7 +155,6 @@ bool Disconnect()
     cout<<"third handwave finished."<<endl;
 
     memcpy(&disconnect, disconnect_buf, packet_length);
-    //print_log(disconnect);
     if((disconnect.header.flag == ACK) && (disconnect.header.seq == 0x0) && (disconnect.header.ack == 0x0) && check_sum((uint16_t*)&disconnect, packet_length)==0){
         cout<<"fourth handwave finished."<<endl;
     }
@@ -191,7 +195,7 @@ void recv_file(){
             cout<<"recv error."<<endl;
         }else {
             memcpy(&recv, recv_buf, packet_length);
-            // 检查有无错误，若有则直接将该数据包丢弃
+            // 检查有无错误，若有则直接将该数据包丢弃，等待对面超时重传
             // 不是重传，也不是下一个
             if(check_sum((uint16_t*)&recv, packet_length)!=0 || (recv.header.seq!=seq_num && recv.header.seq!=seq_num+1)){
                 cout<<"something is wrong with this packet. waiting for resend."<<endl<<endl;

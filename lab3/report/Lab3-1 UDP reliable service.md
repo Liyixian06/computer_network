@@ -192,7 +192,9 @@ void send_file(string filename)
 }
 ```
 
-为发送 packet 编写了单独的函数 `send_packet`，实现停等机制：发送之后，要等待直至收到 server 的响应、而且验证无误才能继续；如果超时仍未收到或存在错误就重发，继续等待响应。
+为发送 packet 编写了单独的函数 `send_packet`，实现停等机制：发送之后，要等待直至收到 server 的响应、而且验证无误才能继续；如果超时仍未收到或存在错误就重发，继续等待响应。  
+
+注意：一开始超时重传的部分一直不执行，发现是没有设置非阻塞模式，设置后能正常执行。
 
 ```c++
 void send_packet(Packet& pa)
@@ -258,7 +260,7 @@ void recv_file(){
             cout<<"recv error."<<endl;
         }else {
             memcpy(&recv, recv_buf, packet_length);
-            // 检查有无错误，若有则直接将该数据包丢弃
+            // 检查有无错误，若有则直接将该数据包丢弃，等待对面超时重传
             // 不是重传，也不是下一个
             if(check_sum((uint16_t*)&recv, packet_length)!=0 || (recv.header.seq!=seq_num && recv.header.seq!=seq_num+1)){
                 cout<<"something is wrong with this packet. waiting for resend."<<endl<<endl;
@@ -338,6 +340,12 @@ void send_ack(Packet& recv){
 传输一个较大的文件，查看传输时间和吞吐率：
 
 ![](./transfer_data2.png)
+
+测试差错检测和超时重传功能，在发送时随机设置 5% 的 packet 序列号错误：
+
+![](./resend.png)
+
+可以看到 server 打印了报错信息，client 打印了超时信息，并重传了错误的 packet。
 
 输入 quit 结束传输，关闭连接并退出：
 
