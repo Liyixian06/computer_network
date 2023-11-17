@@ -54,19 +54,19 @@ const int packet_length = sizeof(Packet);
 
 // 计算校验和
 uint16_t check_sum(uint16_t* pa, int size){
-    int count = (size+1)/2;
+    int count = (size+1)/2; // 字段数量
     uint16_t* buf = (uint16_t*)malloc(size);
     memset(buf, 0, size);
     memcpy(buf, pa, size);
     unsigned long sum = 0;
     while(count--){
         sum += *buf++;
-        if (sum & 0xffff0000) {
+        if (sum & 0xffff0000) { // 如果有高位进位，清零高位，低位+1
             sum &= 0xffff;
             sum++;
         }
     }
-    return ~(sum & 0xffff);
+    return ~(sum & 0xffff); // 按位取反
 }
 
 void print_log(Packet& pa){

@@ -15,7 +15,6 @@ int ServerPort = 1234;
 int ServerAddrSize = sizeof(ServerAddr);
 
 const int Max_time = 0.2*CLOCKS_PER_SEC;
-const int Max_filesz = 1024*1024*10;
 uint16_t seq_num = 0;
 long filesz = 0;
 string file_dir = "./test_file/";
@@ -37,8 +36,6 @@ bool Connect()
         return 0;
     }
     clock_t start = clock();
-    u_long mode = 0;
-    ioctlsocket(ClientSocket, FIONBIO, &mode); // 阻塞模式
 
     // 接收第二次握手信息，超时重传
     while(recvfrom(ClientSocket, connect_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize)<=0){
@@ -55,7 +52,7 @@ bool Connect()
     cout<<"first handshake finished."<<endl;
 
     memcpy(&connect, connect_buf, packet_length);
-    if((connect.header.flag == SYN_ACK) && (connect.header.seq == 0xFFFF) && check_sum((uint16_t*)&connect, packet_length)==0){
+    if((connect.header.flag == SYN_ACK) && (connect.header.seq == 0xFFFF) && (connect.header.ack == 0x0) && check_sum((uint16_t*)&connect, packet_length)==0){
         cout<<"second handshake finished."<<endl;
     }
     else {
@@ -68,6 +65,7 @@ bool Connect()
     memset(connect_buf, 0, packet_length);
     connect.header.flag = ACK;
     connect.header.seq = 0x0;
+    connect.header.ack = 0x0;
     connect.header.sum = check_sum((uint16_t*)&connect, packet_length);
     memcpy(connect_buf, &connect, packet_length);
     res = sendto(ClientSocket, connect_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, ServerAddrSize);
@@ -87,9 +85,6 @@ bool Disconnect()
     char* disconnect_buf = new char[packet_length];
     int res;
 
-    u_long mode = 1;
-    ioctlsocket(ClientSocket, FIONBIO, &mode);
-
     // 发送第一次挥手信息
     disconnect.header.flag = FIN;
     disconnect.header.seq = 0xFFFF;
@@ -102,8 +97,6 @@ bool Disconnect()
         return 0;
     }
     clock_t start = clock();
-    mode = 0;
-    ioctlsocket(ClientSocket, FIONBIO, &mode); // 阻塞模式
 
     // 接收第二次挥手信息，超时重传
     while(recvfrom(ClientSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize)<=0){
@@ -121,15 +114,13 @@ bool Disconnect()
 
     memcpy(&disconnect, disconnect_buf, packet_length);
     //print_log(disconnect);
-    if((disconnect.header.flag == ACK) && (disconnect.header.seq == 0x0) && check_sum((uint16_t*)&disconnect, packet_length)==0){
+    if((disconnect.header.flag == ACK) && (disconnect.header.seq == 0x0) && (disconnect.header.ack == 0x0) && check_sum((uint16_t*)&disconnect, packet_length)==0){
         cout<<"second handwave finished."<<endl;
     }
     else {
         cout<<"second handwave failed."<<endl;
         return 0;
     }
-    mode = 1;
-    ioctlsocket(ClientSocket, FIONBIO, &mode); // 非阻塞模式
 
     // 接收第三次挥手信息
     res = recvfrom(ClientSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize);
@@ -147,14 +138,12 @@ bool Disconnect()
         return 0;
     }
 
-    mode = 0;
-    ioctlsocket(ClientSocket, FIONBIO, &mode);
-
     // 发送第四次挥手信息
     memset(&disconnect, 0, packet_length);
     memset(disconnect_buf, 0, packet_length);
     disconnect.header.flag = ACK;
     disconnect.header.seq = 0x0;
+    disconnect.header.ack = 0x0;
     disconnect.header.sum = check_sum((uint16_t*)&disconnect, packet_length);
     memcpy(disconnect_buf, &disconnect, packet_length);
     //print_log(disconnect);
@@ -190,7 +179,7 @@ void send_packet(Packet& pa)
                 if(res == SOCKET_ERROR){
                     cout<<"send error."<<endl;
                 }
-                clock_t start = clock();
+                start = clock();
                 cout<<"[Send]"<<endl;
                 print_log(pa);
             }
@@ -202,7 +191,15 @@ void send_packet(Packet& pa)
             seq_num++;
             break;
         }
-        else continue;
+        else { // 错误重发
+            res = sendto(ClientSocket, send_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, ServerAddrSize);
+            if(res == SOCKET_ERROR){
+                cout<<"send error."<<endl;
+            }
+            start = clock();
+            cout<<"[Send]"<<endl;
+            print_log(pa);
+        }
     }
     
     delete[] send_buf;
@@ -246,11 +243,17 @@ void send_file(string filename)
             send.set(send_header, file_buf + idx * MAX_LENGTH, MAX_LENGTH);
             send.header.sum = check_sum((uint16_t*)&send, packet_length);
         }
+        /*
+        int err = rand()%10;
+        if(err<=2){
+            send.header.seq++;
+        }
+        */
         send_packet(send);
         Sleep(10);
     }
 
-    cout<<"file is successfully received."<<endl<<endl;
+    cout<<"file is successfully sent."<<endl<<endl;
     delete[] file_buf;
 }
 

@@ -15,7 +15,7 @@ int ClientAddrSize = sizeof(ClientAddr);
 int ClientPort = 5678;
 
 const int Max_time = 0.2*CLOCKS_PER_SEC;
-const int Max_filesz = 1024*1024*10;
+const int Max_filesz = 1024*1024*20; // 20MB
 bool quit = false;
 uint16_t seq_num = 0;
 string output_dir = "./output/";
@@ -46,6 +46,7 @@ bool Connect()
     memset(connect_buf, 0, packet_length);
     connect.header.flag = SYN_ACK;
     connect.header.seq = 0xFFFF;
+    connect.header.ack = 0x0;
     connect.header.sum = check_sum((uint16_t*)&connect, packet_length);
     memcpy(connect_buf, &connect, packet_length);
     res = sendto(ServerSocket, connect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, ClientAddrSize);
@@ -54,8 +55,6 @@ bool Connect()
         return 0;
     }
     clock_t start = clock();
-    u_long mode=0;
-    ioctlsocket(ServerSocket, FIONBIO, &mode); // 阻塞模式
 
     // 接收第三次握手信息，超时重传
     while(recvfrom(ServerSocket, connect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, &ClientAddrSize)<=0){
@@ -72,7 +71,7 @@ bool Connect()
     cout<<"second handshake finished."<<endl;
 
     memcpy(&connect, connect_buf, packet_length);
-    if((connect.header.flag == ACK) && (connect.header.seq == 0x0) && check_sum((uint16_t*)&connect, packet_length)==0){
+    if((connect.header.flag == ACK) && (connect.header.seq == 0x0) && (connect.header.ack == 0x0) && check_sum((uint16_t*)&connect, packet_length)==0){
         cout<<"third handshake finished."<<endl;
     }
     else{
@@ -90,9 +89,6 @@ bool Disconnect()
     char* disconnect_buf = new char[packet_length];
     int res;
 
-    u_long mode=0;
-    ioctlsocket(ServerSocket, FIONBIO, &mode); // 阻塞模式
-
     // 接收第一次挥手信息
     while(1){
         res = recvfrom(ServerSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, &ClientAddrSize);
@@ -108,14 +104,12 @@ bool Disconnect()
         }
     }
 
-    mode=1;
-    ioctlsocket(ServerSocket, FIONBIO, &mode);
-
     // 发送第二次挥手信息
     memset(&disconnect, 0, packet_length);
     memset(disconnect_buf, 0, packet_length);
     disconnect.header.flag = ACK;
     disconnect.header.seq = 0x0;
+    disconnect.header.ack = 0x0;
     disconnect.header.sum = check_sum((uint16_t*)&disconnect, packet_length);
     memcpy(disconnect_buf, &disconnect, packet_length);
     //print_log(disconnect);
@@ -140,8 +134,6 @@ bool Disconnect()
         return 0;
     }
     clock_t start = clock();
-    mode=0;
-    ioctlsocket(ServerSocket, FIONBIO, &mode);
 
     // 接收第四次挥手信息，超时重传
     while(recvfrom(ServerSocket, disconnect_buf, packet_length, 0, (SOCKADDR*)&ClientAddr, &ClientAddrSize)<=0){
@@ -159,7 +151,7 @@ bool Disconnect()
 
     memcpy(&disconnect, disconnect_buf, packet_length);
     //print_log(disconnect);
-    if((disconnect.header.flag == ACK) && (disconnect.header.seq == 0x0) && check_sum((uint16_t*)&disconnect, packet_length)==0){
+    if((disconnect.header.flag == ACK) && (disconnect.header.seq == 0x0) && (disconnect.header.ack == 0x0) && check_sum((uint16_t*)&disconnect, packet_length)==0){
         cout<<"fourth handwave finished."<<endl;
     }
     else{
@@ -200,9 +192,10 @@ void recv_file(){
         }else {
             memcpy(&recv, recv_buf, packet_length);
             // 检查有无错误，若有则直接将该数据包丢弃
-            if(check_sum((uint16_t*)&recv, packet_length)!=0 || recv.header.seq!=seq_num){
+            // 不是重传，也不是下一个
+            if(check_sum((uint16_t*)&recv, packet_length)!=0 || (recv.header.seq!=seq_num && recv.header.seq!=seq_num+1)){
                 cout<<"something is wrong with this packet. waiting for resend."<<endl<<endl;
-                send_ack(recv);
+                //send_ack(recv);
                 continue;
             }
             // 第一个包，内容是文件名
@@ -212,7 +205,7 @@ void recv_file(){
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv);
-                seq_num++;
+                //seq_num++;
             }
             // 最后一个包，这个文件全部发送完毕
             else if(recv.header.isOVER()){
@@ -238,12 +231,13 @@ void recv_file(){
             }
             // 文件发送中
             else {
+                if(recv.header.seq == seq_num+1) seq_num++;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 offset += recv.header.datasize;
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv);
-                seq_num++;
+                //seq_num++;
             }
 
         }
