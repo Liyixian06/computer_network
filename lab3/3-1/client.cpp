@@ -17,7 +17,7 @@ int ServerAddrSize = sizeof(ServerAddr);
 const int Max_time = 0.2*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
 long filesz = 0;
-string file_dir = "./test_file/";
+string file_dir = "../test_file/";
 
 bool Connect()
 {
