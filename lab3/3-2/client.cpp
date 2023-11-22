@@ -18,7 +18,6 @@ int ServerAddrSize = sizeof(ServerAddr);
 const int Max_time = 0.2*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
 const int cwnd = 5;
-uint16_t base = 1;
 uint16_t last_ack = 1; // 最后一个收到确认的packet的序列号
 uint16_t nxt = 1; // 未发送但在可发送范围的第一个packet的序列号
 queue<Packet> send_window; // 发送窗口
@@ -169,15 +168,17 @@ void send_packet(Packet& pa)
 {
     char* send_buf = new char[packet_length];
     memcpy(send_buf, &pa, packet_length);
+    
+    // 调试用，2% 发错
     /*
-    // 调试用，5% 发错
     int err = rand()%100;
-    if(err<=5){
+    if(err<=2){
         Packet tmp = pa;
         tmp.header.sum++;
         memcpy(send_buf, &tmp, packet_length);
     }
     */
+    
     int res = sendto(ClientSocket, send_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, ServerAddrSize);
     if(res == SOCKET_ERROR){
         cout<<"send error."<<endl;
@@ -226,19 +227,22 @@ DWORD WINAPI send_file(LPVOID para)
                 send.header.sum = check_sum((uint16_t*)&send, packet_length);
             }
             send_packet(send);
-            send_window.push(send);
+            //send_window.push(send);
             nxt++;
         }
 
         if(resend){ // 超时重传
             cout<<"Timed out. resending..."<<endl<<endl;
-            start = clock();
+            nxt = last_ack;
+            /*
             for (int i=0; i<send_window.size(); i++){
                 send_packet(send_window.front());
                 send_window.push(send_window.front());
                 send_window.pop();
             }
+            */
             resend = false;
+            start = clock();
         }
     }
 
@@ -264,7 +268,7 @@ DWORD WINAPI recv_ack(LPVOID)
                 cout<<"[Recv]"<<endl;
                 cout<<"seq: "<<recv.header.seq<<" ack: "<<recv.header.ack<<endl<<endl;
                 last_ack++;
-                send_window.pop();
+                //send_window.pop();
                 cout<<"last ack = "<<last_ack<<endl;
             }
             else if (recv.header.ack == last_ack){ // 忽视重复的ack
@@ -292,86 +296,6 @@ void multithread_GBN(string filename)
     WaitForMultipleObjects(2, GBN_threads, true, INFINITE);
     CloseHandle(GBN_threads[0]);
     CloseHandle(GBN_threads[1]);
-}
-
-void send_file_GBN(string filename){
-    base = 1;
-    last_ack = 0;
-    nxt = 1;
-    ifstream fin(file_dir + filename.c_str(), ifstream::binary);
-    fin.seekg(0, ifstream::end);
-    long size = fin.tellg();
-    filesz = size;
-    fin.seekg(0);
-    char* file_buf = new char[filesz];
-    fin.read(&file_buf[0], filesz);
-    fin.close();
-
-    Packet recv;
-    char* recv_buf = new char[packet_length];
-
-    int packet_num = filesz/MAX_LENGTH + 1; // 计算需要多少个包
-    cout<<"file name: "<<filename<<" file size: "<<filesz<<endl;
-    cout<<"This file will be transfered in "<<packet_num<<" packets."<<endl<<endl;
-
-    char* name = (char*)filename.data();
-    int name_sz = strlen(name);
-    // 第一个包，内容是文件名
-    Header send_header;
-    Packet send;
-    send_header.set(name_sz, 0, START, 0, 0);
-    send.set(send_header, name, name_sz);
-    send.header.sum = check_sum((uint16_t*)&send, packet_length);
-    send_packet(send); // 发送第一个包
-
-    clock_t start = clock();
-
-    while(last_ack < packet_num){ // 还没有收到所有ack
-        if(nxt <= packet_num && nxt < base + cwnd){
-            if(nxt == packet_num){ // 最后一个包，要标记OVER，另外注意包的大小
-                send_header.set(filesz - (nxt-1)*MAX_LENGTH, 0, OVER, 0, nxt);
-                send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, filesz - (nxt-1)*MAX_LENGTH);
-                send.header.sum = check_sum((uint16_t*)&send, packet_length);
-            }
-            else {
-                send_header.set(MAX_LENGTH, 0, 0, 0, nxt);
-                send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, MAX_LENGTH);
-                send.header.sum = check_sum((uint16_t*)&send, packet_length);
-            }
-            send_packet(send);
-            send_window.push(send);
-            nxt++;
-        }
-
-        if(clock()-start > Max_time){ // 超时重传
-            cout<<"Timed out. resending..."<<endl<<endl;
-            start = clock();
-            for (int i=0; i<send_window.size(); i++){
-                send_packet(send_window.front());
-                send_window.push(send_window.front());
-                send_window.pop();
-            }
-        }
-
-        if(recvfrom(ClientSocket, recv_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize)>0){
-            memcpy(&recv, recv_buf, packet_length);
-            if(recv.header.flag == ACK && check_sum((uint16_t*)&recv, packet_length)==0){
-                if(base == recv.header.seq){ // 收到正确的ack，窗口向前滑动
-                    base++;
-                    cout<<"[Recv]"<<endl;
-                    cout<<"seq: "<<recv.header.seq<<" ack: "<<recv.header.ack<<endl<<endl;
-                    last_ack++;
-                    send_window.pop();
-                }
-                else if (recv.header.ack == last_ack){ // 忽视重复的ack
-                    cout<<"repetitive ack: "<<recv.header.ack<<endl<<endl;
-                }
-            }
-        }
-    }
-
-    cout<<"file is successfully sent."<<endl<<endl;
-    delete[] file_buf;
 }
 
 int main()
@@ -424,7 +348,6 @@ int main()
         }
         else {
             clock_t start = clock();
-            //send_file_GBN(input);
             multithread_GBN(input);
             clock_t end = clock();
             cout<<"Transfer Time: "<<(end-start) / CLOCKS_PER_SEC <<"s"<<endl;
