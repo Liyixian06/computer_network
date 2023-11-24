@@ -14,7 +14,7 @@ sockaddr_in ClientAddr;
 int ClientAddrSize = sizeof(ClientAddr);
 int ClientPort = 5678;
 
-const int Max_time = 0.2*CLOCKS_PER_SEC;
+const int Max_time = 0.5*CLOCKS_PER_SEC;
 const int Max_filesz = 1024*1024*20; // 20MB
 bool quit = false;
 uint16_t seq_num = 0; // 最后一个确认收到的packet的seq
@@ -199,37 +199,14 @@ void recv_file(){
                 cout<<"This packet's check sum is wrong. waiting for resend."<<endl<<endl;
                 continue;
             }
-            // 传错了，就重传最后一个确认收到的 ack
-            if(recv.header.seq!=seq_num && recv.header.seq!=seq_num+1){
-                cout<<"[Recv]"<<endl;
-                print_log(recv);
-                cout<<"NOTICE: something is wrong with this packet. waiting for resend."<<endl<<endl;
-                send_ack(seq_num);
-                continue;
-            }
             // 第一个包，内容是文件名
-            if(recv.header.isSTART()){
+            if(recv.header.isSTART() && recv.header.seq==0){
                 filename = recv.buffer;
                 cout<<"file name: "<<filename<<endl<<endl;
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
                 //seq_num++;
-            }
-            // 最后一个包，这个文件全部发送完毕
-            else if(recv.header.isOVER()){
-                memcpy(file_content + offset, recv.buffer, recv.header.datasize);
-                //offset += recv.header.datasize;
-                cout<<"[Recv]"<<endl;
-                print_log(recv);
-                ofstream fout(output_dir + filename, ofstream::binary);
-                fout.write(file_content, offset);
-                fout.close();
-                send_ack(recv.header.seq);
-                cout<<"file size: "<<offset<<endl;
-                cout<<"file "<<filename<<" received."<<endl<<endl;
-                delete[] recv_buf;
-                break;
             }
             // client 结束连接
             else if(recv.header.isEND()){
@@ -238,24 +215,47 @@ void recv_file(){
                 delete[] recv_buf;
                 break;
             }
-            // 文件发送中
-            else {
+            // 传错了，就重传最后一个确认收到的 ack
+            else if(recv.header.seq!=seq_num+1){
+                cout<<"[Recv]"<<endl;
+                print_log(recv);
+                cout<<"NOTICE: something is wrong with this packet. waiting for resend."<<endl<<endl;
+                send_ack(seq_num);
+                continue;
+            }
+            // 最后一个包，这个文件全部发送完毕
+            else if(recv.header.isOVER()){
+                cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
-                if(recv.header.seq == seq_num+1){
-                    seq_num++;
-                    offset += recv.header.datasize;
-                }
+                seq_num++;
+                offset += recv.header.datasize;
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
-                //seq_num++;
+                ofstream fout(output_dir + filename, ofstream::binary);
+                fout.write(file_content, offset);
+                fout.close();
+                cout<<"file size: "<<offset<<endl;
+                cout<<"file "<<filename<<" received."<<endl<<endl;
+                delete[] recv_buf;
+                break;
+            }
+            // 文件发送中
+            else {
+                cout<<"offset = "<<offset<<endl;
+                memcpy(file_content + offset, recv.buffer, recv.header.datasize);
+                cout<<"[Recv]"<<endl;
+                print_log(recv);
+                send_ack(recv.header.seq);
+                offset += recv.header.datasize;
+                seq_num++;
             }
 
         }
         delete[] recv_buf;
     }
     
-    seq_num = 0; // 每次收到一个文件，就把seq置零
+    seq_num = 0; // 每次收到一个文件，就把seq重置
     delete[] file_content;
 }
 

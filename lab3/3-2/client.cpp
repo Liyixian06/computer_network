@@ -15,16 +15,18 @@ sockaddr_in ServerAddr;
 int ServerPort = 1234;
 int ServerAddrSize = sizeof(ServerAddr);
 
-const int Max_time = 0.2*CLOCKS_PER_SEC;
+const int Max_time = 0.5*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
-const int cwnd = 5;
-uint16_t last_ack = 1; // 最后一个收到确认的packet的序列号
-uint16_t nxt = 1; // 未发送但在可发送范围的第一个packet的序列号
-queue<Packet> send_window; // 发送窗口
+int cwnd = 5;
+uint16_t last_ack = 0; // 最后一个收到确认的packet的ack
+uint16_t nxt = 1; // 下一个发送的 packet 的序列号
 bool resend = false;
 clock_t start;
 long filesz = 0;
 string file_dir = "../test_file/";
+int loss_rate = 0;
+int delay = 0;
+int loss_num = 0;
 
 bool Connect()
 {
@@ -127,7 +129,7 @@ bool Disconnect()
     }
     else {
         cout<<"second handwave failed."<<endl;
-        //return 0;
+        return 0;
     }
 
     // 接收第三次挥手信息
@@ -142,7 +144,7 @@ bool Disconnect()
     }
     else {
         cout<<"third handwave failed."<<endl;
-        //return 0;
+        return 0;
     }
 
     // 发送第四次挥手信息
@@ -166,18 +168,17 @@ bool Disconnect()
 
 void send_packet(Packet& pa)
 {
-    char* send_buf = new char[packet_length];
-    memcpy(send_buf, &pa, packet_length);
-    
-    // 调试用，2% 发错
-    /*
+    // 随机丢包
     int err = rand()%100;
-    if(err<=2){
-        Packet tmp = pa;
-        tmp.header.sum++;
-        memcpy(send_buf, &tmp, packet_length);
+    if(err<loss_rate) {
+        loss_num++;
+        cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<pa.header.seq<<endl<<endl<<endl;
+        return;
     }
-    */
+    Sleep(delay);
+    
+    char* send_buf = new char[packet_length];
+    memcpy(send_buf, &pa, packet_length);    
     
     int res = sendto(ClientSocket, send_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, ServerAddrSize);
     if(res == SOCKET_ERROR){
@@ -213,37 +214,34 @@ DWORD WINAPI send_file(LPVOID para)
     send_packet(send); // 发送第一个包
 
     start = clock();
+    char* file_pos = file_buf;
 
-    while(last_ack < packet_num){ // 还没有收到所有ack
-        if(nxt <= packet_num && nxt <= last_ack + cwnd){
+    while(last_ack <= packet_num){ // 还没有收到所有ack
+        if(nxt <= packet_num && nxt <= last_ack + cwnd - 1){
             if(nxt == packet_num){ // 最后一个包，要标记OVER，另外注意包的大小
                 send_header.set(filesz - (nxt-1)*MAX_LENGTH, 0, OVER, 0, nxt);
-                send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, filesz - (nxt-1)*MAX_LENGTH);
+                send.set(send_header, file_pos, filesz - (nxt-1)*MAX_LENGTH);
                 send.header.sum = check_sum((uint16_t*)&send, packet_length);
             }
             else {
                 send_header.set(MAX_LENGTH, 0, 0, 0, nxt);
-                send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, MAX_LENGTH);
+                send.set(send_header, file_pos, MAX_LENGTH);
                 send.header.sum = check_sum((uint16_t*)&send, packet_length);
             }
             send_packet(send);
-            //send_window.push(send);
             nxt++;
+            file_pos = file_buf + (nxt-1)*MAX_LENGTH;
         }
-
+        
         if(resend){ // 超时重传
-            cout<<"Timed out. resending..."<<endl<<endl;
+            cout<<"Timed out. resending..."<<endl;
             nxt = last_ack;
-            /*
-            for (int i=0; i<send_window.size(); i++){
-                send_packet(send_window.front());
-                send_window.push(send_window.front());
-                send_window.pop();
-            }
-            */
+            file_pos = file_buf + (nxt-1)*MAX_LENGTH;
+            cout<<"nxt = "<<last_ack<<endl<<endl;
             resend = false;
             start = clock();
         }
+        
     }
 
     cout<<"file is successfully sent."<<endl<<endl;
@@ -255,7 +253,7 @@ DWORD WINAPI recv_ack(LPVOID)
     int packet_num = filesz/MAX_LENGTH + 1;
     Packet recv;
     char* recv_buf = new char[packet_length];
-    while(last_ack < packet_num){
+    while(last_ack <= packet_num){
         while(recvfrom(ClientSocket, recv_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize)<=0){
             if(clock()-start > Max_time){ // 超时重发
                 resend = true;
@@ -264,24 +262,28 @@ DWORD WINAPI recv_ack(LPVOID)
         start = clock();
         memcpy(&recv, recv_buf, packet_length);
         if(recv.header.flag == ACK && check_sum((uint16_t*)&recv, packet_length)==0){
-            if(recv.header.ack == last_ack+1){ // 收到正确的ack，窗口向前滑动
+            if(recv.header.ack >= last_ack+1){ // 收到正确的ack，窗口向前滑动
                 cout<<"[Recv]"<<endl;
-                cout<<"seq: "<<recv.header.seq<<" ack: "<<recv.header.ack<<endl<<endl;
-                last_ack++;
-                //send_window.pop();
+                cout<<"seq: "<<recv.header.seq<<" ack: "<<recv.header.ack<<endl;
+                last_ack = recv.header.ack;
                 cout<<"last ack = "<<last_ack<<endl;
+                int right_border = last_ack + cwnd - 1 <= packet_num? last_ack + cwnd - 1 : packet_num;
+                cout<<"send window: ["<<last_ack<<","<<right_border<<"]"<<endl<<endl;
             }
             else if (recv.header.ack == last_ack){ // 忽视重复的ack
                 cout<<"repetitive ack: "<<recv.header.ack<<endl<<endl;
             }
         }
     }
+
+    delete[] recv_buf;
 }
 
 void multithread_GBN(string filename)
 {
-    last_ack = 1;
+    last_ack = 0;
     nxt = 1;
+    loss_num = 0;
 
     ifstream fin(file_dir + filename.c_str(), ifstream::binary);
     fin.seekg(0, ifstream::end);
@@ -325,6 +327,12 @@ int main()
     }
 
     cout<<"You can input 'quit' to disconnect."<<endl;
+    cout<<"Please set a send window size: ";
+    cin>>cwnd;
+    cout<<"Please set the packet loss rate(%): ";
+    cin>>loss_rate;
+    cout<<"Please set the delay(ms): ";
+    cin>>delay;
     while(1){
         string input;
         cout<<"Please input the file name you want to send: ";
@@ -350,6 +358,7 @@ int main()
             clock_t start = clock();
             multithread_GBN(input);
             clock_t end = clock();
+            cout<<"lost "<<loss_num<<" packets."<<endl;
             cout<<"Transfer Time: "<<(end-start) / CLOCKS_PER_SEC <<"s"<<endl;
             cout<<"Average Throughput: "<< (float)filesz / ((end-start) / CLOCKS_PER_SEC) <<"bytes/s"<<endl<<endl;
         }
