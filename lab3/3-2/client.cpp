@@ -24,9 +24,6 @@ bool resend = false;
 clock_t start;
 long filesz = 0;
 string file_dir = "../test_file/";
-int loss_rate = 0;
-int delay = 0;
-int loss_num = 0;
 
 bool Connect()
 {
@@ -168,15 +165,6 @@ bool Disconnect()
 
 void send_packet(Packet& pa)
 {
-    // 随机丢包
-    int err = rand()%100;
-    if(err<loss_rate) {
-        loss_num++;
-        cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<pa.header.seq<<endl<<endl<<endl;
-        return;
-    }
-    Sleep(delay);
-    
     char* send_buf = new char[packet_length];
     memcpy(send_buf, &pa, packet_length);    
     
@@ -283,7 +271,6 @@ void multithread_GBN(string filename)
 {
     last_ack = 0;
     nxt = 1;
-    loss_num = 0;
 
     ifstream fin(file_dir + filename.c_str(), ifstream::binary);
     fin.seekg(0, ifstream::end);
@@ -329,10 +316,6 @@ int main()
     cout<<"You can input 'quit' to disconnect."<<endl;
     cout<<"Please set a send window size: ";
     cin>>cwnd;
-    cout<<"Please set the packet loss rate(%): ";
-    cin>>loss_rate;
-    cout<<"Please set the delay(ms): ";
-    cin>>delay;
     while(1){
         string input;
         cout<<"Please input the file name you want to send: ";
@@ -358,7 +341,6 @@ int main()
             clock_t start = clock();
             multithread_GBN(input);
             clock_t end = clock();
-            cout<<"lost "<<loss_num<<" packets."<<endl;
             cout<<"Transfer Time: "<<(end-start) / CLOCKS_PER_SEC <<"s"<<endl;
             cout<<"Average Throughput: "<< (float)filesz / ((end-start) / CLOCKS_PER_SEC) <<"bytes/s"<<endl<<endl;
         }

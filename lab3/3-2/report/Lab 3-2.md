@@ -228,17 +228,10 @@ DWORD WINAPI send_file(LPVOID para)
 这里存在一个线程间的沟通：在接收函数 `recv_ack` 中，循环接收 server 发来的 ack，如果超过了设定的最大间隔 `Max_time` 还没有收到，就设定全局变量 `resend = true`，`send_file` 看到了这个变量变化，就进入超时重传。
 
 为发送 packet 编写了单独的函数 `send_packet`；和实验 3-1 不同，不是停等机制，不需要等到收到 ack，发送完就退出。  
-另外，这里实现了随机丢包和固定延迟。
 
 ```c++
 void send_packet(Packet& pa)
 {
-    // 随机丢包
-    int err = rand()%100;
-    if(err<loss_rate) return;
-    // 延迟
-    Sleep(delay);
-    
     char* send_buf = new char[packet_length];
     memcpy(send_buf, &pa, packet_length);    
     
@@ -254,7 +247,7 @@ void send_packet(Packet& pa)
 }
 ```
 
-`recv_ack` 除了给发送函数传递超时重传的信号外，主要工作就是在收到 ack 后将发送窗口向前滑动；采用累积确认，即无论丢失了多少个 ack，只要在超时之前收到了 server 返回的一串 ack 中的最后一个，就一并确认前面所有的 packet，避免一系列 ack 中的某一个丢失造成的无必要的重传。  
+`recv_ack` 除了给发送函数传递超时重传的信号外，主要工作就是在收到 ack 后将发送窗口向前滑动；采用累积确认，即无论丢失了多少个 ack，只要在超时之前收到了 server 返回的一个 ack，就一并确认前面所有的 packet，避免一系列 ack 中的某一个丢失造成的无必要的重传。  
 具体实现上，就是使 `last_ack = recv.header.ack`。  
 
 另外，由于在 server 接收检查出错时会返回之前的最后一个 ack，client 要无视重复 ack。
@@ -303,12 +296,14 @@ server 从建立到关闭的整个流程和 client 基本一致，唯一区别�
 用于接收单个文件的函数 `recv_file` 循环接收从 `START` 到 `OVER` 的所有 packet，每收到一个，首先检查检验和是否有误，有则直接丢弃，没有再根据 `flag` 字段分别处理；如果序列号有误，即收到了乱序的 packet，就重传之前发过的最后一个 ack。
 
 对正确的 packet，给它发回对应的 ack，将其数据写入字符数组 `file_content` 里，最后再统一写入创建的文件中。  
-为确定当前 packet 写入的位置，维护一个 `offset` 变量，每次增加所收到 packet 的数据长度，文件全部传输完毕后就得到了文件大小。
+为确定当前 packet 写入的位置，维护一个 `offset` 变量，每次增加所收到 packet 的数据长度，文件全部传输完毕后就得到了文件大小。  
+另外，这里实现了随机丢包（丢掉 ack）和固定延迟。
 
 函数主体如下：
 
 ```c++
 void recv_file(){
+    loss_num = 0;
     char* file_content = new char[Max_filesz];
     string filename = "";
     long offset = 0;
@@ -330,9 +325,7 @@ void recv_file(){
             if(recv.header.isSTART() && recv.header.seq==0){
                 filename = recv.buffer;
                 //print info
-                print_log(recv);
                 send_ack(recv.header.seq);
-                //seq_num++;
             }
             // client 结束连接
             else if(recv.header.isEND()){
@@ -347,8 +340,19 @@ void recv_file(){
                 send_ack(seq_num);
                 continue;
             }
+            // 收到的是正确的包，随机丢包、固定延迟
+            else 
+            {
+            int err = rand()%100;
+            if(err<loss_rate) {
+                loss_num++;
+                // print info
+                continue;
+            }
+            Sleep(delay);
             // 最后一个包，这个文件全部发送完毕
-            else if(recv.header.isOVER()){
+            if(recv.header.isOVER()){
+                cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 seq_num++;
                 offset += recv.header.datasize;
@@ -363,13 +367,13 @@ void recv_file(){
             }
             // 文件发送中
             else {
+                seq_num++;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 //print info
                 send_ack(recv.header.seq);
                 offset += recv.header.datasize;
-                seq_num++;
             }
-
+            }
         }
         delete[] recv_buf;
     }
@@ -408,7 +412,7 @@ void send_ack(uint16_t recv_seq){
 
 ![](./transfer_data.png)
 
-测试滑动窗口的超时重传，设置 2% 的丢包率和 2ms 延迟：
+测试滑动窗口的超时重传，设置 2% 的丢包率和 5ms 延迟：
 
 ![](./loss_rate.png)
 ![](./resend_1.png)

@@ -19,6 +19,9 @@ const int Max_filesz = 1024*1024*20; // 20MB
 bool quit = false;
 uint16_t seq_num = 0; // 最后一个确认收到的packet的seq
 string output_dir = "./output/";
+int loss_rate = 0;
+int delay = 0;
+int loss_num = 0;
 
 bool Connect()
 {
@@ -182,6 +185,7 @@ void send_ack(uint16_t recv_seq){
 }
 
 void recv_file(){
+    loss_num = 0;
     char* file_content = new char[Max_filesz];
     string filename = "";
     long offset = 0;
@@ -223,8 +227,18 @@ void recv_file(){
                 send_ack(seq_num);
                 continue;
             }
+            // 收到的是正确的包，随机丢包
+            else 
+            {
+            int err = rand()%100;
+            if(err<loss_rate) {
+                loss_num++;
+                cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<recv.header.seq<<endl<<endl;
+                continue;
+            }
+            Sleep(delay);
             // 最后一个包，这个文件全部发送完毕
-            else if(recv.header.isOVER()){
+            if(recv.header.isOVER()){
                 cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 seq_num++;
@@ -236,21 +250,21 @@ void recv_file(){
                 fout.write(file_content, offset);
                 fout.close();
                 cout<<"file size: "<<offset<<endl;
-                cout<<"file "<<filename<<" received."<<endl<<endl;
+                cout<<"file "<<filename<<" received. lost "<<loss_num<<" packets."<<endl<<endl;
                 delete[] recv_buf;
                 break;
             }
             // 文件发送中
             else {
+                seq_num++;
                 cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
                 offset += recv.header.datasize;
-                seq_num++;
             }
-
+            }
         }
         delete[] recv_buf;
     }
@@ -261,6 +275,10 @@ void recv_file(){
 
 int main()
 {
+    cout<<"Please set the packet loss rate(%): ";
+    cin>>loss_rate;
+    cout<<"Please set the delay(ms): ";
+    cin>>delay;
     ServerAddr.sin_family = AF_INET;
     ServerAddr.sin_port = htons(ServerPort);
     ServerAddr.sin_addr.S_un.S_addr = inet_addr(IP);
