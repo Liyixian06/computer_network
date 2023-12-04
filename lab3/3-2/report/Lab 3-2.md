@@ -424,4 +424,9 @@ void send_ack(uint16_t recv_seq){
 
 ![](./quit.png)
 
-测试传输文件 `1.jpg, 2.jpg, 3.jpg, helloworld.txt`，正确。
+测试传输文件 `1.jpg, 2.jpg, 3.jpg, helloworld.txt`，正确。丢包率和延迟都为 0、窗口大小为 5 的情况下，测试文件的吞吐率和时延如下：
+
+| filename | 1.jpg | 2.jpg | 3.jpg | helloworld.txt |
+| -------- | ----- | ----- | ----- | -------------- |
+| time(s) | 0.951 | 2.839 | 5.654 | 0.798 |
+| throughput(bytes/ms) | 1953.05 | 2077.67 | 2116.91 | 2080.16 |

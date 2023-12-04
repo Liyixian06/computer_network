@@ -341,8 +341,8 @@ int main()
             clock_t start = clock();
             multithread_GBN(input);
             clock_t end = clock();
-            cout<<"Transfer Time: "<<(end-start) / CLOCKS_PER_SEC <<"s"<<endl;
-            cout<<"Average Throughput: "<< (float)filesz / ((end-start) / CLOCKS_PER_SEC) <<"bytes/s"<<endl<<endl;
+            cout<<"Transfer Time: "<< (float)(end-start)/CLOCKS_PER_SEC <<"s"<<endl;
+            cout<<"Average Throughput: "<< (float)filesz / (end-start) <<"bytes/ms"<<endl<<endl;
         }
     }
 
