@@ -1,6 +1,7 @@
 #include "initsock.h"
 #include "udp.h"
 #include "time.h"
+#include <mutex>
 #include <iostream>
 #include <fstream>
 using namespace std;
@@ -14,7 +15,7 @@ sockaddr_in ServerAddr;
 int ServerPort = 1234;
 int ServerAddrSize = sizeof(ServerAddr);
 
-const int Max_time = 0.5*CLOCKS_PER_SEC;
+const int Max_time = 0.3*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
 const int max_cwnd = 32;
 int cwnd = 5;
@@ -28,6 +29,8 @@ long filesz = 0;
 string file_dir = "../test_file/";
 int* timerID; // 计时器
 char** SRbuf; // 缓冲区
+mutex lock_, printlock;
+MSG msg;
 
 bool Connect()
 {
@@ -183,8 +186,18 @@ void send_packet(Packet& pa)
     delete[] send_buf;
 }
 
-void resend_packet(HWND hwnd, UINT nMsg, UINT nTimerid, DWORD dwTime)
+void print_timerID()
 {
+    cout<<"timerID: ";
+    for(int i=0; i<cwnd; i++)
+        cout<<timerID[i]<<" ";
+    cout<<endl<<endl;
+}
+
+static void CALLBACK resend_packet(HWND hwnd, UINT nMsg, UINT_PTR nTimerid, DWORD dwTime)
+{
+    lock_.lock();
+    cout<<"resend packet locked."<<endl<<endl;
     int seq=0;
     int rel = (base-1)%cwnd;
     for(int i=0; i<=cwnd; i++){ // 找到超时的timer
@@ -202,6 +215,8 @@ void resend_packet(HWND hwnd, UINT nMsg, UINT nTimerid, DWORD dwTime)
     memcpy(rsndpa, SRbuf[(seq-1)%cwnd], packet_length); // 从buffer里取出packet
     send_packet(*rsndpa);
     cout<<endl;
+    cout<<"resend packet unlocked."<<endl<<endl;
+    lock_.unlock();
 }
 
 DWORD WINAPI send_file(LPVOID para)
@@ -221,7 +236,7 @@ DWORD WINAPI send_file(LPVOID para)
     // 第一个包，内容是文件名
     Header send_header;
     Packet send;
-    send_header.set(name_sz, 0, START, 0, 0);
+    send_header.set(name_sz, 0, START, 0, 0, packet_num);
     send.set(send_header, name, name_sz);
     send.header.sum = check_sum((uint16_t*)&send, packet_length);
     send_packet(send); // 发送第一个包
@@ -230,6 +245,8 @@ DWORD WINAPI send_file(LPVOID para)
     {
         if(nxt <= packet_num && nxt <= base + cwnd -1)
         {
+            lock_.lock();
+            cout<<"send packet locked."<<endl<<endl;
             if(nxt == packet_num){ // 最后一个包，要标记OVER，另外注意包的大小
                 send_header.set(filesz - (nxt-1)*MAX_LENGTH, 0, OVER, 0, nxt);
                 send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, filesz - (nxt-1)*MAX_LENGTH);
@@ -241,9 +258,19 @@ DWORD WINAPI send_file(LPVOID para)
                 send.header.sum = check_sum((uint16_t*)&send, packet_length);
             }
             memcpy(SRbuf[(nxt-1)%cwnd], &send, packet_length); //存入缓冲区
+            printlock.lock();
             send_packet(send);
-            timerID[(nxt-1)%cwnd] = SetTimer(NULL, 0, Max_time, (TIMERPROC)resend_packet); // 设置计时器，超时就交给resend处理
+            timerID[(nxt-1)%cwnd] = SetTimer(NULL, 0, (UINT)Max_time, (TIMERPROC)resend_packet); // 设置计时器，超时就交给resend处理
+            print_timerID();
+            printlock.unlock();
             nxt++;
+            cout<<"send packet unlocked."<<endl<<endl;
+            lock_.unlock();
+            //if (nxt <= packet_num && nxt == base + 1) continue;
+        }
+        while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)){
+            if(msg.message == WM_TIMER)
+                DispatchMessage(&msg);
         }
     }
 
@@ -261,26 +288,46 @@ DWORD WINAPI recv_ack(LPVOID)
         if(recvfrom(ClientSocket, recv_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, &ServerAddrSize)>0){
             memcpy(&recv, recv_buf, packet_length);
             if(recv.header.flag == ACK && check_sum((uint16_t*)&recv, packet_length)==0){
+                lock_.lock();
+                cout<<"recv_ack locked."<<endl<<endl;
                 if(recv.header.ack > base && recv.header.ack <= base+cwnd){ // 收到正确的（在滑动窗口内的）ack
                     KillTimer(NULL, timerID[(recv.header.ack-2)%cwnd]); // 取消计时器，timerID置零
                     timerID[(recv.header.ack-2)%cwnd] = 0;
                     memset(SRbuf[(recv.header.ack-2)%cwnd], 0, packet_length); // 把对应缓冲区清空
+                    printlock.lock();
                     cout<<"[Recv]"<<endl;
                     cout<<"seq: "<<recv.header.seq<<" ack: "<<recv.header.ack<<endl;
+                    print_timerID();
+                    printlock.unlock();
                 }
                 if(recv.header.ack == base+1){ // 恰好收到base的ack，窗口滑动到有最小序号的未确认packet处
-                    for(int i = (base-1)%cwnd; ; i+1 < 5? i++ : i=0){
+                    if(base == packet_num) {
+                        cout<<"recv_ack unlocked."<<endl<<endl;
+                        lock_.unlock();
+                        break;
+                    }
+                    int count = 0;
+                    for(int i = (base-1)%cwnd; ; i+1 < cwnd? i++ : i=0){
                         if(timerID[i]) break; // 遇到一个有计时器的就停下来
                         base++;
+                        count++;
+                        // 如果不加这行，可能出现这种情况：窗口内除了recv都收到了，再收到recv，timerID全都为0，这个循环就变成死循环
+                        // 或，窗口内刚发了最初几个就全都收到了，timerID也全都为0，但窗口并没有全发完，不能一口气滑到最后
+                        if(count==cwnd || base==nxt) break;
                     }
                     int right_border = base + cwnd - 1 <= packet_num? base + cwnd - 1 : packet_num;
+                    printlock.lock();
                     cout<<"send window: ["<<base<<","<<right_border<<"]"<<endl<<endl;
+                    printlock.unlock();
                 }
+                cout<<"recv_ack unlocked."<<endl<<endl;
+                lock_.unlock();
             }
         }
     }
 
     delete[] recv_buf;
+    base++;
 }
 
 void multithread_SR(string filename)
@@ -297,8 +344,10 @@ void multithread_SR(string filename)
     timerID = new int[cwnd];
     // 初始化缓冲区
     SRbuf = new char*[cwnd];
-    for(int i=0; i<cwnd; i++)
+    for(int i=0; i<cwnd; i++){
         SRbuf[i] = new char[packet_length];
+        timerID[i] = 0;
+    }
 
     HANDLE GBN_threads[2];
     GBN_threads[0] = CreateThread(NULL, NULL, send_file, &filename, 0, NULL);

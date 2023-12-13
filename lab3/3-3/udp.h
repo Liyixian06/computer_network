@@ -12,14 +12,16 @@ public:
     uint16_t flag = 0; // END START OVER FIN ACK SYN
     uint16_t ack = 0;
     uint16_t seq = 0;
+    uint16_t len = 0;
     Header(){}
-    Header(uint16_t datasize, uint16_t sum, uint16_t flag, uint16_t ack, uint16_t seq) : datasize(datasize),sum(sum),flag(flag),ack(ack),seq(seq){}
-    void set(uint16_t datasize, uint16_t sum, uint16_t flag, uint16_t ack, uint16_t seq){
+    Header(uint16_t datasize, uint16_t sum, uint16_t flag, uint16_t ack, uint16_t seq, uint16_t len=0) : datasize(datasize),sum(sum),flag(flag),ack(ack),seq(seq),len(len){}
+    void set(uint16_t datasize, uint16_t sum, uint16_t flag, uint16_t ack, uint16_t seq, uint16_t len=0){
         this->datasize = datasize;
         this->sum = sum;
         this->flag = flag;
         this->ack = ack;
         this->seq = seq;
+        this->len = len;
     }
     bool isSYN(){return this->flag & 0x1;}
     bool isACK(){return this->flag & 0x2;}

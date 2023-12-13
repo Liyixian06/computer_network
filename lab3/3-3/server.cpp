@@ -22,6 +22,7 @@ string output_dir = "./output/";
 int loss_rate = 0;
 int delay = 0;
 int loss_num = 0;
+uint16_t packet_num = 0;
 
 bool Connect()
 {
@@ -186,6 +187,7 @@ void send_ack(uint16_t recv_seq){
 
 void recv_file(){
     loss_num = 0;
+    packet_num = 0;
     char* file_content = new char[Max_filesz];
     string filename = "";
     long offset = 0;
@@ -206,7 +208,8 @@ void recv_file(){
             // 第一个包，内容是文件名
             if(recv.header.isSTART() && recv.header.seq==0){
                 filename = recv.buffer;
-                cout<<"file name: "<<filename<<endl<<endl;
+                packet_num = recv.header.len;
+                cout<<"file name: "<<filename<<", packet num: "<<packet_num<<endl<<endl;
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
@@ -228,23 +231,23 @@ void recv_file(){
                 send_ack(seq_num);
                 continue;
             }*/
-            // 收到的是正确的包，随机丢包
             else 
-            {
-            int err = rand()%100;
-            if(err<loss_rate) {
-                loss_num++;
-                cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<recv.header.seq<<endl<<endl;
-                continue;
-            }
-            Sleep(delay);
+            {   // 收到的是正确的包，随机丢包
+                int err = rand()%100;
+                if(err<loss_rate) {
+                    loss_num++;
+                    cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<recv.header.seq<<endl<<endl;
+                    continue;
+                }
+                Sleep(delay);
             // 最后一个包，这个文件全部发送完毕
+            // 问题：因为可能的乱序，收到最后一个包并不表示这个文件全部发送完毕！
+            /*
             if(recv.header.isOVER()){
-                offset = seq_num * MAX_LENGTH;
+                offset = (recv.header.seq-1) * MAX_LENGTH;
                 cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 seq_num++;
-                offset += recv.header.datasize;
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
@@ -258,7 +261,7 @@ void recv_file(){
             }
             // 文件发送中
             else {
-                offset = seq_num * MAX_LENGTH;
+                offset = (recv.header.seq-1) * MAX_LENGTH;
                 seq_num++;
                 cout<<"offset = "<<offset<<endl;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
@@ -266,7 +269,27 @@ void recv_file(){
                 print_log(recv);
                 send_ack(recv.header.seq);
                 //offset += recv.header.datasize;
+
             }
+            */
+                offset = (recv.header.seq-1) * MAX_LENGTH;
+                seq_num++;
+                cout<<"offset = "<<offset<<endl;
+                memcpy(file_content + offset, recv.buffer, recv.header.datasize);
+                cout<<"[Recv]"<<endl;
+                print_log(recv);
+                send_ack(recv.header.seq);
+                // 文件接收完毕
+                if(seq_num == packet_num){
+                    offset += recv.header.datasize;
+                    ofstream fout(output_dir + filename, ofstream::binary);
+                    fout.write(file_content, offset);
+                    fout.close();
+                    cout<<"file size: "<<offset<<endl;
+                    cout<<"file "<<filename<<" received. lost "<<loss_num<<" packets."<<endl<<endl;
+                    delete[] recv_buf;
+                    break;
+                }
             }
         }
         delete[] recv_buf;
