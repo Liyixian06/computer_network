@@ -197,7 +197,7 @@ void print_timerID()
 static void CALLBACK resend_packet(HWND hwnd, UINT nMsg, UINT_PTR nTimerid, DWORD dwTime)
 {
     lock_.lock();
-    cout<<"resend packet locked."<<endl<<endl;
+    //cout<<"resend packet locked."<<endl<<endl;
     int seq=0;
     int rel = (base-1)%cwnd;
     for(int i=0; i<=cwnd; i++){ // 找到超时的timer
@@ -215,7 +215,7 @@ static void CALLBACK resend_packet(HWND hwnd, UINT nMsg, UINT_PTR nTimerid, DWOR
     memcpy(rsndpa, SRbuf[(seq-1)%cwnd], packet_length); // 从buffer里取出packet
     send_packet(*rsndpa);
     cout<<endl;
-    cout<<"resend packet unlocked."<<endl<<endl;
+    //cout<<"resend packet unlocked."<<endl<<endl;
     lock_.unlock();
 }
 
@@ -236,7 +236,7 @@ DWORD WINAPI send_file(LPVOID para)
     // 第一个包，内容是文件名
     Header send_header;
     Packet send;
-    send_header.set(name_sz, 0, START, 0, 0, packet_num);
+    send_header.set(name_sz, 0, START, 0, 0, packet_num); // 把要发送的包的数量也写在len里
     send.set(send_header, name, name_sz);
     send.header.sum = check_sum((uint16_t*)&send, packet_length);
     send_packet(send); // 发送第一个包
@@ -246,7 +246,7 @@ DWORD WINAPI send_file(LPVOID para)
         if(nxt <= packet_num && nxt <= base + cwnd -1)
         {
             lock_.lock();
-            cout<<"send packet locked."<<endl<<endl;
+            //cout<<"send packet locked."<<endl<<endl;
             if(nxt == packet_num){ // 最后一个包，要标记OVER，另外注意包的大小
                 send_header.set(filesz - (nxt-1)*MAX_LENGTH, 0, OVER, 0, nxt);
                 send.set(send_header, file_buf + (nxt-1)*MAX_LENGTH, filesz - (nxt-1)*MAX_LENGTH);
@@ -264,9 +264,8 @@ DWORD WINAPI send_file(LPVOID para)
             print_timerID();
             printlock.unlock();
             nxt++;
-            cout<<"send packet unlocked."<<endl<<endl;
+            //cout<<"send packet unlocked."<<endl<<endl;
             lock_.unlock();
-            //if (nxt <= packet_num && nxt == base + 1) continue;
         }
         while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)){
             if(msg.message == WM_TIMER)
@@ -289,7 +288,7 @@ DWORD WINAPI recv_ack(LPVOID)
             memcpy(&recv, recv_buf, packet_length);
             if(recv.header.flag == ACK && check_sum((uint16_t*)&recv, packet_length)==0){
                 lock_.lock();
-                cout<<"recv_ack locked."<<endl<<endl;
+                //cout<<"recv_ack locked."<<endl<<endl;
                 if(recv.header.ack > base && recv.header.ack <= base+cwnd){ // 收到正确的（在滑动窗口内的）ack
                     KillTimer(NULL, timerID[(recv.header.ack-2)%cwnd]); // 取消计时器，timerID置零
                     timerID[(recv.header.ack-2)%cwnd] = 0;
@@ -302,7 +301,7 @@ DWORD WINAPI recv_ack(LPVOID)
                 }
                 if(recv.header.ack == base+1){ // 恰好收到base的ack，窗口滑动到有最小序号的未确认packet处
                     if(base == packet_num) {
-                        cout<<"recv_ack unlocked."<<endl<<endl;
+                        //cout<<"recv_ack unlocked."<<endl<<endl;
                         lock_.unlock();
                         break;
                     }
@@ -320,7 +319,7 @@ DWORD WINAPI recv_ack(LPVOID)
                     cout<<"send window: ["<<base<<","<<right_border<<"]"<<endl<<endl;
                     printlock.unlock();
                 }
-                cout<<"recv_ack unlocked."<<endl<<endl;
+                //cout<<"recv_ack unlocked."<<endl<<endl;
                 lock_.unlock();
             }
         }

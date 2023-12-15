@@ -222,15 +222,6 @@ void recv_file(){
                 delete[] recv_buf;
                 break;
             }
-            // 传错了，就重传最后一个确认收到的 ack
-            /*
-            else if(recv.header.seq!=seq_num+1){
-                cout<<"[Recv]"<<endl;
-                print_log(recv);
-                cout<<"NOTICE: something is wrong with this packet. waiting for resend."<<endl<<endl;
-                send_ack(seq_num);
-                continue;
-            }*/
             else 
             {   // 收到的是正确的包，随机丢包
                 int err = rand()%100;
@@ -240,27 +231,6 @@ void recv_file(){
                     continue;
                 }
                 Sleep(delay);
-            // 最后一个包，这个文件全部发送完毕
-            // 问题：因为可能的乱序，收到最后一个包并不表示这个文件全部发送完毕！
-            /*
-            if(recv.header.isOVER()){
-                offset = (recv.header.seq-1) * MAX_LENGTH;
-                cout<<"offset = "<<offset<<endl;
-                memcpy(file_content + offset, recv.buffer, recv.header.datasize);
-                seq_num++;
-                cout<<"[Recv]"<<endl;
-                print_log(recv);
-                send_ack(recv.header.seq);
-                ofstream fout(output_dir + filename, ofstream::binary);
-                fout.write(file_content, offset);
-                fout.close();
-                cout<<"file size: "<<offset<<endl;
-                cout<<"file "<<filename<<" received. lost "<<loss_num<<" packets."<<endl<<endl;
-                delete[] recv_buf;
-                break;
-            }
-            // 文件发送中
-            else {
                 offset = (recv.header.seq-1) * MAX_LENGTH;
                 seq_num++;
                 cout<<"offset = "<<offset<<endl;
@@ -268,18 +238,7 @@ void recv_file(){
                 cout<<"[Recv]"<<endl;
                 print_log(recv);
                 send_ack(recv.header.seq);
-                //offset += recv.header.datasize;
-
-            }
-            */
-                offset = (recv.header.seq-1) * MAX_LENGTH;
-                seq_num++;
-                cout<<"offset = "<<offset<<endl;
-                memcpy(file_content + offset, recv.buffer, recv.header.datasize);
-                cout<<"[Recv]"<<endl;
-                print_log(recv);
-                send_ack(recv.header.seq);
-                // 文件接收完毕
+                // 因为可能的乱序，收到最后一个包并不表示这个文件全部接收完毕，需要判断已经收到packet的数量
                 if(seq_num == packet_num){
                     offset += recv.header.datasize;
                     ofstream fout(output_dir + filename, ofstream::binary);
