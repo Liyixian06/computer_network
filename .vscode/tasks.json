@@ -3,7 +3,7 @@
         {
             "type": "cppbuild",
             "label": "C/C++: g++.exe 生成活动文件",
-            "command": "D:\\Program\\mingw64\\bin\\g++.exe",
+            "command": "D:/Program/mingw64/bin/g++.exe",
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
@@ -14,7 +14,7 @@
                 "-fexec-charset=GBK"
             ],
             "options": {
-                "cwd": "${fileDirname}"
+                "cwd": "D:/Program/mingw64/bin"
             },
             "problemMatcher": [
                 "$gcc"

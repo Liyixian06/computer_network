@@ -15,7 +15,7 @@ sockaddr_in ServerAddr;
 int ServerPort = 1234;
 int ServerAddrSize = sizeof(ServerAddr);
 
-const int Max_time = 0.3*CLOCKS_PER_SEC;
+const int Max_time = 0.5*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
 const int max_cwnd = 32;
 int cwnd = 5;

@@ -14,7 +14,7 @@ sockaddr_in ServerAddr;
 int ServerPort = 1234;
 int ServerAddrSize = sizeof(ServerAddr);
 
-const int Max_time = 0.2*CLOCKS_PER_SEC;
+const int Max_time = 0.5*CLOCKS_PER_SEC;
 uint16_t seq_num = 0;
 long filesz = 0;
 string file_dir = "../test_file/";
@@ -163,13 +163,6 @@ void send_packet(Packet& pa)
     Packet recv;
     char* recv_buf = new char[packet_length];
     memcpy(send_buf, &pa, packet_length);
-    // 调试用，5% 发错
-    int err = rand()%100;
-    if(err<=5){
-        Packet tmp = pa;
-        tmp.header.seq++;
-        memcpy(send_buf, &tmp, packet_length);
-    }
     int res = sendto(ClientSocket, send_buf, packet_length, 0, (SOCKADDR*)&ServerAddr, ServerAddrSize);
     if(res == SOCKET_ERROR){
         cout<<"send error."<<endl;
@@ -312,8 +305,8 @@ int main()
             clock_t start = clock();
             send_file(input);
             clock_t end = clock();
-            cout<<"Transfer Time: "<<(end-start) / CLOCKS_PER_SEC <<"s"<<endl;
-            cout<<"Average Throughput: "<< (float)filesz / ((end-start) / CLOCKS_PER_SEC) <<"bytes/s"<<endl<<endl;
+            cout<<"Transfer Time: "<< (float)(end-start)/CLOCKS_PER_SEC <<"s"<<endl;
+            cout<<"Average Throughput: "<< (float)filesz / (end-start) <<"bytes/ms"<<endl<<endl;
         }
     }
 

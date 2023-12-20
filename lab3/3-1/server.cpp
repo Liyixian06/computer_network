@@ -14,12 +14,14 @@ sockaddr_in ClientAddr;
 int ClientAddrSize = sizeof(ClientAddr);
 int ClientPort = 5678;
 
-const int Max_time = 0.2*CLOCKS_PER_SEC;
+const int Max_time = 0.5*CLOCKS_PER_SEC;
 const int Max_filesz = 1024*1024*20; // 20MB
 bool quit = false;
 uint16_t seq_num = 0;
 string output_dir = "./output/";
-// 可靠数据传输，功能包括：建立连接、差错检测、接收确认、超时重传等。流量控制采用停等机制，完成给定测试文件的传输。
+int loss_rate = 0;
+int delay = 0;
+int loss_num = 0;
 
 bool Connect()
 {
@@ -183,6 +185,7 @@ void send_ack(Packet& recv){
 }
 
 void recv_file(){
+    loss_num = 0;
     char* file_content = new char[Max_filesz];
     string filename = "";
     long offset = 0;
@@ -235,6 +238,13 @@ void recv_file(){
             }
             // 文件发送中
             else {
+                int err = rand()%100;
+                if(err<loss_rate) {
+                    loss_num++;
+                    cout<<"NOTICE: lost packet "<<loss_num<<", seq "<<recv.header.seq<<endl<<endl;
+                    continue;
+                }
+                Sleep(delay);
                 if(recv.header.seq == seq_num+1) seq_num++;
                 memcpy(file_content + offset, recv.buffer, recv.header.datasize);
                 offset += recv.header.datasize;
@@ -254,6 +264,10 @@ void recv_file(){
 
 int main()
 {
+    cout<<"Please set the packet loss rate(%): ";
+    cin>>loss_rate;
+    cout<<"Please set the delay(ms): ";
+    cin>>delay;
     ServerAddr.sin_family = AF_INET;
     ServerAddr.sin_port = htons(ServerPort);
     ServerAddr.sin_addr.S_un.S_addr = inet_addr(IP);
